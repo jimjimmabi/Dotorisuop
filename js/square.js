@@ -95,9 +95,10 @@ async function loadSquareGroups() {
     list.appendChild(item);
   });
 
-  // Auto-open the first group if none is active
+  // Auto-open the first group if none is active.
+  // Pass {silentMobile:true} so mobile stays on the list until the user taps.
   if (!squareState.activeGroupId && squareState.myGroups.length > 0) {
-    openGroup(squareState.myGroups[0].id);
+    openGroup(squareState.myGroups[0].id, { silentMobile: true });
   }
 }
 
@@ -124,7 +125,8 @@ function renderGroupListItem(group) {
 
 // ---------- Open a group ----------
 
-async function openGroup(groupId) {
+async function openGroup(groupId, options) {
+  const opts = options || {};
   squareState.activeGroupId = groupId;
 
   // Update sidebar active state
@@ -167,9 +169,11 @@ async function openGroup(groupId) {
 
   renderGroupMain(main, group, members, entries, isCreator);
 
-  // On mobile: slide the main panel into view
-  const page = document.querySelector('.square-page');
-  if (page) page.classList.add('show-main');
+  // On mobile: slide the main panel into view unless silentMobile
+  if (!opts.silentMobile) {
+    const page = document.querySelector('.square-page');
+    if (page) page.classList.add('show-main');
+  }
 
   // Realtime subscription
   subscribeToActiveGroup(groupId);

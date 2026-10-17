@@ -54,6 +54,7 @@ function showModal(title, bodyHtml, buttons) {
 
 function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
+  document.dispatchEvent(new CustomEvent('dotori-modal-closed'));
 }
 
 // ---------- Tab switching ----------
@@ -129,8 +130,7 @@ async function renderHome(profile) {
     }
   }
 
-  const dateEl = document.getElementById('header-date');
-  if (dateEl) dateEl.textContent = '2008년 3월 14일';
+  // Header date is owned by timecapsule.js — don't override it here.
 
   const visits = await DotoriStorage.bumpVisit();
   const todayEl = document.getElementById('counter-today');
@@ -138,7 +138,7 @@ async function renderHome(profile) {
   if (todayEl) todayEl.textContent = visits.todayCount;
   if (totalEl) totalEl.textContent = visits.total;
 
-  await renderGuestbookPreview();
+  await renderGuestbookPreview(profile.dotori_id);
   await renderRoomPreviewHome(profile);
 
   const room = await DotoriStorage.getRoom();
@@ -249,6 +249,10 @@ async function renderGuestbookPreview(ownerDotoriId) {
 async function renderGuestbookTab(ownerDotoriId) {
   const container = document.querySelector('#tab-guestbook .placeholder-panel');
   if (!container) return;
+
+  // When viewing someone else's page, use the visit tab container.
+  const visitContainer = document.querySelector('#tab-guestbook .guestbook-visit-panel');
+  const target = visitContainer || container;
 
   let entries = [];
   try {
@@ -640,6 +644,54 @@ async function openVisitModal(profile) {
 window.addEventListener('DOMContentLoaded', () => {
   initAuth();
 });
+
+// ---------- Visit mode (someone else's page) ----------
+
+window.initVisitMode = async function (profile) {
+  if (!profile) return;
+
+  // Render their home first (mini-me, guestbook preview, taste, room, etc.)
+  await renderHome(profile);
+
+  // Hide self-only controls
+  ['profile-edit-btn', 'status-edit-btn', 'taste-edit-btn', 'taste-go-btn', 'logout-link']
+    .forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+  initTabs();
+  initFriendsDrawer();
+
+  // Open their visit modal immediately
+  if (typeof openVisitModal === 'function') {
+    openVisitModal(profile);
+  }
+};
+
+// ---------- Visit mode (someone else's page) ----------
+
+window.initVisitMode = async function (profile) {
+  if (!profile) return;
+
+  // Render their home first (mini-me, guestbook preview, taste, room, etc.)
+  await renderHome(profile);
+
+  // Hide self-only controls
+  ['profile-edit-btn', 'status-edit-btn', 'taste-edit-btn', 'taste-go-btn', 'logout-link']
+    .forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+  initTabs();
+  initFriendsDrawer();
+
+  // Open their visit modal immediately
+  if (typeof openVisitModal === 'function') {
+    openVisitModal(profile);
+  }
+};
 
 window.initApp = initApp;
 window.openVisitModal = openVisitModal;

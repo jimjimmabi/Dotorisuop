@@ -448,8 +448,7 @@ async function saveMiniRoom() {
     const ok = await DotoriStorage.saveMyRoom({
       layout: layoutToSave,
       wallpaper: roomState.wallpaper,
-      floor: roomState.floor,
-      bgm_choice: null
+      floor: roomState.floor
     });
 
     if (ok) {

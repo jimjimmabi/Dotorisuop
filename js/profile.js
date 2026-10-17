@@ -150,10 +150,10 @@ async function openProfileEditor() {
           updates.mini_me_bg = activeBg ? activeBg.dataset.bg : profile.mini_me_bg;
           updates.mini_me_image_url = null; // pet choice wins
         } else {
-          // Avatar tab: keep whatever image state was set by upload/clear
-          // (uploadAvatar/clearAvatar already wrote to the DB directly)
-          // Just preserve the bg if the user didn't change it
-          // No mini_me_image_url update here — the avatar actions handle it
+          // Avatar tab: keep whatever image state was set by upload/clear.
+          // Also persist the bg color if it was changed.
+          const activeBg = document.querySelector('.bg-option.active');
+          if (activeBg) updates.mini_me_bg = activeBg.dataset.bg;
         }
 
         try {
@@ -448,7 +448,8 @@ async function openGuestbookWriter(ownerDotoriId) {
           closeModal();
 
           if (ownerDotoriId) {
-            await renderGuestbookPreview(ownerDotoriId);
+            // Writing on someone else's book — refresh *their* tab view only,
+            // never overwrite the home preview (which shows *my* guestbook).
             await renderGuestbookTab(ownerDotoriId);
           } else {
             const updated = await DotoriStorage.getProfile();

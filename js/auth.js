@@ -181,7 +181,7 @@ async function initAuth() {
       );
     } finally {
       loadBtn.disabled = false;
-      loadBtn.textContent = '기존 도토리 불러오기';
+      loadBtn.textContent = '내 도토리 불러오기';
     }
   });
 
@@ -206,7 +206,8 @@ async function initAuth() {
 
           if (!dotoriId) return;
 
-          const profile = await DotoriStorage.loginByDotoriId(dotoriId);
+          // asVisitor: don't overwrite dotori_my_id
+          const profile = await DotoriStorage.loginByDotoriId(dotoriId, { asVisitor: true });
 
           if (profile) {
             closeModal();

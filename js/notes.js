@@ -257,7 +257,11 @@ function renderConversationModal(conv) {
     const msg = input.value.trim();
     if (!msg) return;
 
-    const replyToId = activeReplyTo ? activeReplyTo.id : null;
+    const replyToId = (activeReplyTo
+      && activeReplyTo.id
+      && !String(activeReplyTo.id).startsWith('temp-'))
+      ? activeReplyTo.id
+      : null;
 
     input.value = '';
     cancelReply();
@@ -566,7 +570,9 @@ function setupLiveChat(conv) {
 
         const thread = document.getElementById('chat-thread');
         if (thread) {
-          const optimistic = thread.querySelector(`[data-optimistic="true"][data-message="${cssEscape(newNote.message)}"]`);
+          const optimistic = Array.from(thread.querySelectorAll('[data-optimistic="true"]'))
+            .find((el) => el.dataset.message === newNote.message);
+
           if (optimistic) {
             optimistic.removeAttribute('data-optimistic');
             optimistic.removeAttribute('data-message');

@@ -28,44 +28,17 @@ async function getMyId() {
 // ---------- Auth ----------
 
 async function createAcorn(nickname) {
-  const { data: { session: existingSession } } = await sb.auth.getSession();
-  let userId;
+  // Start a fresh anonymous session so we always create a brand-new acorn.
+  try { await sb.auth.signOut(); } catch (e) {}
 
-  if (existingSession && existingSession.user) {
-    userId = existingSession.user.id;
-  } else {
-    const { data: authData, error: authError } = await sb.auth.signInAnonymously();
-    if (authError) throw authError;
-    userId = authData.user.id;
-  }
+  const { data: authData, error: authError } = await sb.auth.signInAnonymously();
+  if (authError) throw authError;
 
-  const { data: existingProfile } = await sb
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
+  const userId = authData.user.id;
 
-  if (existingProfile) {
-    const { data: updated, error: updateError } = await sb
-      .from('profiles')
-      .update({ nickname })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (updateError) {
-      if (updateError.code === '23505') {
-        throw new Error('이미 누군가 사용하고 있는 닉네임이에요.');
-      }
-      throw updateError;
-    }
-
-    localStorage.setItem('dotori_session', JSON.stringify({
-      loggedIn: true, dotori_id: updated.dotori_id, user_id: updated.id, is_owner: true
-    }));
-    localStorage.setItem('dotori_my_id', updated.dotori_id);
-    return updated;
-  }
+  // Ensure the nickname is available
+  const taken = await isNicknameTaken(nickname);
+  if (taken) throw new Error('이미 누군가 사용하고 있는 닉네임이에요.');
 
   const dotoriId = 'dotori-' + Math.random().toString(36).substring(2, 6);
 
@@ -123,7 +96,10 @@ async function loadAcorn() {
   return data;
 }
 
-async function loginByDotoriId(dotoriId) {
+async function loginByDotoriId(dotoriId, options) {
+  const opts = options || {};
+  const asVisitor = !!opts.asVisitor;
+
   const cleaned = String(dotoriId).trim().toLowerCase();
 
   const { data: profile, error } = await sb
@@ -140,13 +116,15 @@ async function loginByDotoriId(dotoriId) {
     if (authError) throw authError;
   }
 
-  localStorage.setItem('dotori_my_id', profile.dotori_id);
-  localStorage.setItem('dotori_session', JSON.stringify({
-    loggedIn: true,
-    dotori_id: profile.dotori_id,
-    user_id: profile.id,
-    is_owner: true
-  }));
+  if (!asVisitor) {
+    localStorage.setItem('dotori_my_id', profile.dotori_id);
+    localStorage.setItem('dotori_session', JSON.stringify({
+      loggedIn: true,
+      dotori_id: profile.dotori_id,
+      user_id: profile.id,
+      is_owner: true
+    }));
+  }
 
   return profile;
 }
@@ -154,6 +132,16 @@ async function loginByDotoriId(dotoriId) {
 async function getMyAcorn() {
   const myId = localStorage.getItem('dotori_my_id');
   if (!myId) return null;
+
+  // Make sure we still have an anon session to read with
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    try {
+      await sb.auth.signInAnonymously();
+    } catch (e) {
+      console.warn('Re-auth failed:', e);
+    }
+  }
 
   const { data, error } = await sb
     .from('profiles')
@@ -348,15 +336,22 @@ async function saveMyRoom(room) {
   const myId = await getMyId();
   if (!myId) return false;
 
+  const payload = {
+    layout: room.layout || {},
+    wallpaper: room.wallpaper || 'default',
+    floor: room.floor || 'default',
+    updated_at: new Date().toISOString()
+  };
+
+  // Only touch bgm_choice when the caller explicitly provides it.
+  if (Object.prototype.hasOwnProperty.call(room, 'bgm_choice')
+      && room.bgm_choice !== undefined) {
+    payload.bgm_choice = room.bgm_choice;
+  }
+
   const { error } = await sb
     .from('rooms')
-    .update({
-      layout: room.layout || {},
-      wallpaper: room.wallpaper || 'default',
-      floor: room.floor || 'default',
-      bgm_choice: room.bgm_choice || null,
-      updated_at: new Date().toISOString()
-    })
+    .update(payload)
     .eq('user_id', myId);
 
   return !error;
@@ -618,38 +613,35 @@ async function getConversationWith(dotoriId) {
   };
 }
 
-// FIXED: uses `sb` (was `supabase`), and calls getConversationWith
+// Returns flat, received note rows with `sender` populated.
+// notes.js and friends.js both expect this shape.
 async function getInbox() {
   const me = await getProfile();
   if (!me) return [];
 
-  const { data: noteData, error: noteError } = await sb
+  const { data: notes, error } = await sb
     .from('notes')
-    .select('sender_id, recipient_id')
-    .or(`sender_id.eq.${me.id},recipient_id.eq.${me.id}`);
-
-  if (noteError) { console.error('getInbox (notes) error:', noteError); return []; }
-
-  const userIds = new Set();
-  noteData.forEach(note => {
-    if (note.sender_id !== me.id) userIds.add(note.sender_id);
-    if (note.recipient_id !== me.id) userIds.add(note.recipient_id);
-  });
-
-  if (userIds.size === 0) return [];
-
-  const { data: profiles, error: profileError } = await sb
-    .from('profiles')
     .select('*')
-    .in('id', Array.from(userIds));
+    .eq('recipient_id', me.id)
+    .order('created_at', { ascending: false });
 
-  if (profileError) { console.error('getInbox (profiles) error:', profileError); return []; }
+  if (error) { console.error('getInbox error:', error); return []; }
 
-  const conversations = await Promise.all(
-    profiles.map(p => getConversationWith(p.dotori_id))
-  );
+  const senderIds = [...new Set((notes || []).map((n) => n.sender_id))];
+  if (senderIds.length === 0) return [];
 
-  return conversations.filter(Boolean).sort((a, b) => b.lastAt - a.lastAt);
+  const { data: senders } = await sb
+    .from('profiles')
+    .select('id, dotori_id, nickname, mini_me, mini_me_bg, mini_me_image_url, status_message')
+    .in('id', senderIds);
+
+  const map = {};
+  (senders || []).forEach((s) => { map[s.id] = s; });
+
+  return (notes || []).map((n) => ({
+    ...n,
+    sender: map[n.sender_id] || { nickname: '익명', mini_me: '🌰' }
+  }));
 }
 
 async function getSentNotes() {
